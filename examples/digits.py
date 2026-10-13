@@ -4,7 +4,8 @@ Run: pip install -e ".[examples]" && python examples/digits.py
 
 The digits are rendered with matplotlib fonts (random size, rotation and offset), so
 nothing is downloaded. The MLP is the 784-16-16-10 network from 3Blue1Brown's video
-and opens in the neuron view; the CNN opens in the 3D layer view.
+and opens in the neuron view; the CNN opens in the 3D layer view. Each also gets an
+animated SVG that plays inside a GitHub README.
 """
 
 from pathlib import Path
@@ -79,6 +80,7 @@ train(mlp, x_train, y_train, epochs=15)
 print(f"MLP test accuracy: {accuracy(mlp, x_test, y_test):.1%}")
 viz = torchscope.visualize(mlp, x_test[picks], title="784-16-16-10 MLP on digits")
 print(viz, "->", viz.save(OUT / "digits_mlp.html"))
+print("README animation ->", viz.save_svg(OUT / "digits_mlp.svg"))
 
 cnn = nn.Sequential(
     nn.Conv2d(1, 8, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
@@ -91,3 +93,4 @@ train(cnn, x_train, y_train, epochs=6)
 print(f"CNN test accuracy: {accuracy(cnn, x_test, y_test):.1%}")
 viz = torchscope.visualize(cnn, x_test[picks], title="Small CNN on digits")
 print(viz, "->", viz.save(OUT / "digits_cnn.html"))
+print("README animation ->", viz.save_svg(OUT / "digits_cnn.svg"))

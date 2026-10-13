@@ -12,6 +12,7 @@ import torchscope
 # x is a batch of example inputs; each sample is selectable in the viewer.
 viz = torchscope.visualize(model, x)
 viz.save("net.html")  # or just display `viz` in Jupyter
+viz.save_svg("net.svg")  # animated, plays in a GitHub README
 graph = torchscope.trace(model, x)  # the simplified dataflow graph, for inspection and tests
 ```
 
@@ -27,8 +28,10 @@ graph = torchscope.trace(model, x)  # the simplified dataflow graph, for inspect
 - `torchscope/graph.py`: `Graph`/`Node` dataclasses and simplification
 - `torchscope/summary.py`: turns activations into small per-sample summaries (slab face textures, vectors)
 - `torchscope/export.py`: picks the view and builds the JSON payload
+- `torchscope/explain.py`: plain-language captions for each layer (step mode, details panel)
 - `torchscope/render.py`: `Visualization`; inlines the viewer assets and the JSON into one HTML file
-- `torchscope/viewer/`: `template.html`, `style.css`, and plain JS (`common.js`, `neurons.js`, `slabs.js`, `main.js`), concatenated into one `<script type="module">`
+- `torchscope/svg.py`, `torchscope/svg_slabs.py`: animated SVG export for READMEs (neuron view, slab view)
+- `torchscope/viewer/`: `template.html`, `style.css`, and plain JS (`common.js`, `learn.js`, `neurons.js`, `slabs.js`, `main.js`), concatenated into one `<script type="module">`
 - `tests/`: mirrors the package; toy models live in `tests/conftest.py`
 - `examples/`: runnable scripts that write HTML files
 
@@ -51,6 +54,13 @@ graph = torchscope.trace(model, x)  # the simplified dataflow graph, for inspect
 - One self-contained HTML file, no build step, no npm. The only external dependency is three.js `0.160.0` from jsdelivr via an import map. Only the slab view imports it (dynamically), so the neuron view works offline.
 - Dark 3Blue1Brown look. Colors are CSS tokens on `:root` in `style.css`: blue = positive, red = negative.
 - Rendering is a pure function of the timeline position `t`, so the progress slider can scrub.
+
+## SVG export rules
+- The SVG must animate with CSS keyframes only: no `<script>`, no external references. GitHub renders README SVGs as images, so scripts never run.
+- All animations share one looping duration (`_Timeline`), so they stay in sync. Images are embedded as PNG data URIs (`svg._png`, stdlib only).
+
+## Audience
+This is a learning tool, aimed first at MLPs and simple CNNs. Captions should explain what a layer does in plain language using its real sizes, and numbers shown to the user must be exact (or clearly labelled when they are not, as with folded BatchNorm).
 
 ## Testing
 - Tests run on CPU, are seeded, and never download weights or data.

@@ -20,6 +20,28 @@ The output is one self-contained HTML page:
 
 Every sample in the batch can be picked in the viewer. Hover or click anything for details.
 
+## Learning features
+
+- **Step through it.** The ⏮ ⏭ buttons (or ← →) move one layer at a time, and a caption explains in plain language what that layer just did, with its real sizes ("8 filters, each 3×3, slide over the input…").
+- **See the maths.** Hover a neuron to see the weighted sum that produced its value: its largest `weight × input` terms, the rest, the bias, `z`, and the activation, such as `ReLU(0.900) = 0.900`.
+- **Look inside a convolution.** Click a conv layer to see every channel's feature map and the kernel that made it. Then watch the kernel slide over the input and build the feature map, with the arithmetic at each position.
+
+## In your README
+
+GitHub doesn't run JavaScript in READMEs, so export an animated SVG instead. Its animation is pure CSS, so it plays right in the README:
+
+```python
+viz.save_svg("docs/network.svg")  # cycles through the first three samples
+```
+
+```markdown
+![My network](docs/network.svg)
+```
+
+Pick the samples with `samples=[0, 4, 7]`, and set the size with `width=` and `height=`.
+
+## Inspecting the graph
+
 `torchscope.trace(model, x)` returns the underlying dataflow graph if you want to inspect it.
 
 Examples (no downloads needed):

@@ -28,11 +28,22 @@
   <aside id="panel" class="panel" hidden></aside>
   <div id="tooltip" class="tooltip" hidden></div>
   <footer id="controls" class="controls">
+    <div id="caption" class="caption" aria-live="polite" hidden>
+      <div id="caption-title" class="caption-title"></div>
+      <div id="caption-text" class="caption-text"></div>
+    </div>
     <div class="row">
+      <button id="prev" class="icon-btn small" aria-label="Previous step" title="Previous step">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
+      </button>
       <button id="play" class="icon-btn" aria-label="Play">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z"/></svg>
       </button>
+      <button id="next" class="icon-btn small" aria-label="Next step" title="Next step">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
+      </button>
       <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Animation progress">
+      <button id="explain" class="btn" aria-pressed="true" title="Show what each layer does">Explain</button>
       <select id="speed" aria-label="Speed">
         <option value="0.5">0.5×</option>
         <option value="1" selected>1×</option>

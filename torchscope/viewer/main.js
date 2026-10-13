@@ -23,6 +23,7 @@
     current = view;
     ui.view = view;
     ui.setDuration(view.duration);
+    ui.setStages(view.stages || []);
     ui.restart();
   }
   ui.onSample = (s) => {

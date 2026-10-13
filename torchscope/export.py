@@ -10,9 +10,13 @@ from typing import Any
 import torch
 from torch import nn
 
+from torchscope.explain import ACTIVATION_NAMES, describe, describe_neuron_layer
 from torchscope.graph import Graph, Node
 
 MAX_MLP_LAYERS = 12
+MATH_TERMS = 4  # largest w*a terms listed when hovering a neuron
+CONV_INPUT_MAX = 8192  # per-sample input values sent for the convolution animation
+CONV_WEIGHTS_MAX = 20000
 
 
 def _b64(t: torch.Tensor) -> str:
@@ -123,6 +127,7 @@ def neuron_payload(
         return sorted(top.tolist())
 
     shown = pick(input_values)
+    has_image = _image_dims(nodes[0], input_values.shape[1], image_shape) is not None
     layers: list[dict[str, Any]] = [
         {
             "name": "input",
@@ -131,13 +136,35 @@ def neuron_payload(
             "size": input_values.shape[1],
             "shown": shown,
             "values": _rounded(input_values[:, shown]),
+            "explain": describe_neuron_layer(
+                0, len(body) + 1, None, input_values.shape[1], len(shown), has_image
+            ),
         }
     ]
-    for n in body:
+    prev_values = input_values
+    for k, n in enumerate(body, start=1):
         values = n.summary.vector
         prev_shown, shown = shown, pick(values)
         w = n.module.weight.detach().float().cpu()
         b = n.module.bias
+        bias = b.detach().float().cpu() if b is not None else torch.zeros(w.shape[0])
+        # The maths behind each shown neuron: z = sum_i w_i a_i + b, and its largest terms.
+        terms = prev_values[:, None, :] * w[shown][None]  # (B, shown, in)
+        z = terms.sum(-1) + bias[shown]
+        top = terms.abs().topk(min(MATH_TERMS, terms.shape[-1]), dim=-1).indices
+        math_terms = [
+            [
+                [
+                    [i, round(float(w[o, i]), 5), round(float(prev_values[s, i]), 5)]
+                    for i in top[s, j].tolist()
+                ]
+                for j, o in enumerate(shown)
+            ]
+            for s in range(values.shape[0])
+        ]
+        act = next((t for t in n.tags if t in ACTIVATION_NAMES), None)
+        exact = all(t in ACTIVATION_NAMES for t in n.tags) and len(n.tags) <= 1
+        prev_values = values
         tags = " · ".join(n.tags)
         layers.append(
             {
@@ -148,9 +175,14 @@ def neuron_payload(
                 "shown": shown,
                 "values": _rounded(values[:, shown]),
                 "weights": _rounded(w[shown][:, prev_shown]),
-                "bias": [round(v, 5) for v in b.detach().float().cpu()[shown].tolist()]
-                if b is not None
-                else None,
+                "bias": [round(v, 5) for v in bias[shown].tolist()] if b is not None else None,
+                "z": _rounded(z),
+                "terms": math_terms,
+                "act": act,
+                "exact": exact,
+                "explain": describe_neuron_layer(
+                    k, len(body) + 1, n, values.shape[1], len(shown), has_image
+                ),
             }
         )
 
@@ -174,6 +206,33 @@ def neuron_payload(
     return payload
 
 
+def _conv_payload(node: Node, graph: Graph) -> dict[str, Any] | None:
+    """Kernels, bias and exact input of a small ``nn.Conv2d``, for the convolution animation."""
+    m = node.module
+    if not isinstance(m, nn.Conv2d) or not node.inputs or m.weight.numel() > CONV_WEIGHTS_MAX:
+        return None
+    src = graph.nodes[node.inputs[0]]
+    vec = src.summary.vector if src.summary is not None else None
+    if vec is None or len(src.shape) != 4 or vec.shape[1] > CONV_INPUT_MAX:
+        return None
+    c, h, w = src.shape[1:]
+    pad = m.padding if isinstance(m.padding, tuple) else None
+    if pad is None or m.groups != 1 or m.dilation != (1, 1) or m.padding_mode != "zeros":
+        return None
+    act = next((t for t in node.tags if t in ACTIVATION_NAMES), None)
+    return {
+        "in": {"c": c, "h": h, "w": w, "data": _rounded(vec)},
+        "weight": [[_rounded(k) for k in out] for out in m.weight.detach().float().cpu()],
+        "bias": [round(v, 5) for v in m.bias.detach().float().cpu().tolist()]
+        if m.bias is not None
+        else None,
+        "stride": list(m.stride),
+        "padding": list(pad),
+        "act": act,
+        "exact": all(t in ACTIVATION_NAMES for t in node.tags) and len(node.tags) <= 1,
+    }
+
+
 def graph_payload(graph: Graph, labels: Sequence[str] | None) -> dict[str, Any]:
     """Build the slab-view payload: nodes with face textures, plus edges."""
     out_nodes = []
@@ -193,7 +252,23 @@ def graph_payload(graph: Graph, labels: Sequence[str] | None) -> dict[str, Any]:
             "info": n.info,
             "params": n.params,
             "output": n.is_output,
+            "explain": describe(n, graph),
         }
+        conv = _conv_payload(n, graph)
+        if conv:
+            node["conv"] = conv
+        if s is not None and s.channels is not None:
+            data, lo, hi = _quantize(s.channels)
+            c, h, w = s.channels.shape[1:]
+            node["channels"] = {
+                "c": c,
+                "h": h,
+                "w": w,
+                "total": s.dims[0],
+                "lo": lo,
+                "hi": hi,
+                "data": data,
+            }
         if s is not None:
             node["dims"] = list(s.dims)
             node["faces"] = {"front": _face(s.front), "side": _face(s.side), "top": _face(s.top)}

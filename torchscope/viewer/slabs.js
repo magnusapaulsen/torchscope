@@ -362,9 +362,30 @@ async function createSlabView(root, P, ui) {
     makeBands();
     duration = T0 + display.maxRank * STEP + 1.2;
     ui.setDuration(duration);
+    ui.setStages(buildStages());
     if (selected) selected = items.find((it) => it.key === selected.key) || null;
     showPanel();
     dirty = true;
+  }
+
+  // One step per rank: what the layers that light up at that moment do.
+  function buildStages() {
+    const byRank = [];
+    for (const it of items) (byRank[it.rank] ||= []).push(it);
+    return byRank.map((row, r) => ({
+      start: T0 + r * STEP,
+      end: T0 + r * STEP + FADE,
+      title: row.map((it) => it.label).join(" + "),
+      text: () =>
+        row
+          .map((it) => {
+            let t = esc(it.group ? groupExplain(it) : it.rep.explain || "");
+            const top = it.rep.top?.[sample]?.[0];
+            if (top) t += ` Prediction: <b>${esc(top[0])}</b> (${(top[1] * 100).toFixed(0)}%).`;
+            return t;
+          })
+          .join(" "),
+    }));
   }
 
   // ---- camera ----------------------------------------------------------------------
@@ -473,12 +494,21 @@ async function createSlabView(root, P, ui) {
     const what = it.group ? `${it.members.length} layers` : typeLine(n);
     ui.tip(`<b>${esc(it.label)}</b>${it.name !== it.label ? ` <span class="muted">${esc(it.name)}</span>` : ""}<br><span class="muted">${esc(what)}</span><br>${fmtShape(n.shape)}`, e.clientX, e.clientY);
   }
+  let stopConv = null;
+  let channel = null; // selected feature-map channel in the panel
+  const groupExplain = (it) => {
+    const kinds = [...new Set(it.members.filter((m) => m.kind === "module").map((m) => m.type))];
+    return `${it.name} is a block of ${it.members.length} layers (${kinds.join(", ") || "operations"}). Double-click it, or press Expand, to look inside.`;
+  };
   function showPanel() {
+    stopConv?.();
+    stopConv = null;
     if (!selected) return ui.panel(null);
     const it = selected;
     const n = it.rep;
     const sub = it.name !== it.label ? `<div class="muted">${esc(it.name)}</div>` : "";
-    let html = `<div class="panel-head"><div><div class="panel-title">${esc(it.label)}</div>${sub}</div><button class="close" aria-label="Close">×</button></div><dl>`;
+    let html = `<div class="panel-head"><div><div class="panel-title">${esc(it.label)}</div>${sub}</div><button class="close" aria-label="Close">×</button></div>`;
+    html += `<p class="explain">${esc(it.group ? groupExplain(it) : n.explain || "")}</p><dl>`;
     html += it.group ? `<dt>Contains</dt><dd>${it.members.length} layers</dd>` : `<dt>Type</dt><dd>${esc(typeLine(n))}</dd>`;
     html += `<dt>Output</dt><dd>${fmtShape(n.shape)}</dd>`;
     if (it.params) html += `<dt>Params</dt><dd>${fmtCount(it.params)}</dd>`;
@@ -490,24 +520,52 @@ async function createSlabView(root, P, ui) {
     if (parent) actions.push(`<button class="btn" data-act="collapse">Collapse into ${esc(parent)}</button>`);
     if (actions.length) html += `<div class="actions">${actions.join("")}</div>`;
     if (n.top) {
-      html += `<div class="muted">Top predictions</div><table class="preds">`;
+      html += `<h4>Top predictions</h4><table class="preds">`;
       for (const [label, p] of n.top[sample]) html += `<tr><td>${esc(label)}</td><td style="width:45%"><div class="bar" style="width:${(p * 100).toFixed(1)}%"></div></td><td style="text-align:right">${(p * 100).toFixed(1)}%</td></tr>`;
       html += `</table>`;
     }
-    if (n.image) html += `<div class="muted">Input image</div><div data-canvas="image"></div>`;
-    if (n.faces) {
+    const conv = !it.group && n.conv;
+    if (n.image) html += `<h4>Input image</h4><div data-canvas="image"></div>`;
+    else if (n.channels) {
+      const ch = n.channels;
+      const count = ch.total > ch.c ? `first ${ch.c} of ${ch.total}` : `${ch.c}`;
+      html += `<h4>Feature maps · ${count} channel${ch.total > 1 ? "s" : ""}</h4><div class="chgrid"></div>`;
+      if (conv) html += `<h4>How a channel is computed</h4><div class="convbox"></div>`;
+      else html += `<div data-canvas="channel"></div>`;
+    } else if (n.faces) {
       const [c, h, w] = n.dims;
-      if (h * w > 1) html += `<div class="muted">Activation, mean over ${c > 1 ? c + " channels" : "channels"}</div><div data-canvas="front"></div>`;
-      if (c > 1) html += `<div class="muted">Activation per channel (rows: height, columns: channels)</div><div data-canvas="side"></div>`;
+      if (h * w > 1) html += `<h4>Activation, mean over ${c > 1 ? c + " channels" : "channels"}</h4><div data-canvas="front"></div>`;
+      if (c > 1) html += `<h4>Activation per channel</h4><div class="muted">rows: height, columns: channels</div><div data-canvas="side"></div>`;
     }
     const panel = ui.panel(html);
+    panel.classList.toggle("wide", !!(n.channels || conv));
     for (const slot of panel.querySelectorAll("[data-canvas]")) {
       const kind = slot.dataset.canvas;
-      slot.replaceWith(kind === "image" ? imageToCanvas(n.image, sample) : faceToCanvas(n.faces[kind], sample));
+      if (kind === "image") slot.replaceWith(imageToCanvas(n.image, sample));
+      else if (kind !== "channel") slot.replaceWith(faceToCanvas(n.faces[kind], sample));
+    }
+    if (n.channels && !n.image) {
+      const ch = n.channels;
+      if (channel == null || channel >= ch.c) channel = brightestChannel(ch, sample);
+      const grid = panel.querySelector(".chgrid");
+      const pick = (c) => {
+        channel = c;
+        mountChannelGrid(grid, ch, sample, c, pick);
+        stopConv?.();
+        const box = panel.querySelector(".convbox");
+        if (box && conv) stopConv = mountConvolution(box, conv, n, sample, c);
+        const slot = panel.querySelector('[data-canvas="channel"]');
+        if (slot) {
+          slot.innerHTML = `<div class="muted">Channel ${c}</div>`;
+          slot.appendChild(channelCanvas(ch, sample, c));
+        }
+      };
+      pick(channel);
     }
     panel.querySelector('[data-act="expand"]')?.addEventListener("click", () => expand(it));
     panel.querySelector('[data-act="collapse"]')?.addEventListener("click", () => collapse(parent));
     panel.querySelector(".close")?.addEventListener("click", () => {
+      stopConv?.();
       selected = null;
       dirty = true;
     });
@@ -533,7 +591,9 @@ async function createSlabView(root, P, ui) {
   el.addEventListener("pointerdown", (e) => (downAt = [e.clientX, e.clientY]));
   el.addEventListener("pointerup", (e) => {
     if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
-    selected = pick(e);
+    const picked = pick(e);
+    if (picked?.key !== selected?.key) channel = null;
+    selected = picked;
     showPanel();
     dirty = true;
   });
@@ -550,11 +610,15 @@ async function createSlabView(root, P, ui) {
     renderer.domElement.style.height = rect.height + "px";
     labelRenderer.setSize(rect.width, rect.height);
     camera.aspect = rect.width / Math.max(1, rect.height);
+    // Centre the picture in the free space between the header and the control bar.
+    const shift = Math.max(0, ((document.getElementById("controls")?.offsetHeight || 0) - 60) / 2);
+    camera.setViewOffset(rect.width, rect.height + 2 * shift, 0, 2 * shift, rect.width, rect.height);
     camera.updateProjectionMatrix();
     dirty = true;
   }
   const ro = new ResizeObserver(resize);
   ro.observe(root);
+  ro.observe(document.getElementById("controls"));
   resize();
   rebuild();
   frameStart();
@@ -598,6 +662,9 @@ async function createSlabView(root, P, ui) {
     get duration() {
       return duration;
     },
+    get stages() {
+      return buildStages();
+    },
     frame(t) {
       updateHover();
       if (follow && ui.playing) {
@@ -625,6 +692,7 @@ async function createSlabView(root, P, ui) {
       dirty = true;
     },
     destroy() {
+      stopConv?.();
       ro.disconnect();
       controls.dispose();
       disposeWorld();

@@ -165,11 +165,64 @@ function createUI(P) {
     syncControls();
   });
   $("speed").addEventListener("change", (e) => (ui.speed = Number(e.target.value)));
+
+  // Steps: each view lists its stages ({start, end, title, text()}); captions follow `t`.
+  ui.stages = [];
+  ui.explain = true;
+  const caption = $("caption");
+  const capTitle = $("caption-title");
+  const capText = $("caption-text");
+  let shownStage = null;
+  ui.setStages = (stages) => {
+    ui.stages = stages;
+    shownStage = null;
+  };
+  // The stage being shown: the last one that has started. Stepping lands exactly on a
+  // stage's end, where the next stage has not started yet, so its caption stays up.
+  ui.stageAt = (t) => {
+    let i = 0;
+    while (i + 1 < ui.stages.length && ui.stages[i + 1].start < t - 1e-6) i++;
+    return i;
+  };
+  ui.step = (dir) => {
+    if (!ui.stages.length) return;
+    let done = -1; // last completed stage
+    while (done + 1 < ui.stages.length && ui.stages[done + 1].end <= ui.t + 1e-6) done++;
+    const target = clamp(done + dir, -1, ui.stages.length - 1);
+    ui.playing = false;
+    ui.t = target < 0 ? 0 : Math.min(ui.duration, ui.stages[target].end);
+    shownStage = null;
+    syncControls();
+  };
+  $("prev").addEventListener("click", () => ui.step(-1));
+  $("next").addEventListener("click", () => ui.step(1));
+  const explainBtn = $("explain");
+  explainBtn.addEventListener("click", () => {
+    ui.explain = !ui.explain;
+    explainBtn.setAttribute("aria-pressed", String(ui.explain));
+    shownStage = null;
+  });
+  function syncCaption() {
+    if (!ui.explain || !ui.stages.length) {
+      caption.hidden = true;
+      return;
+    }
+    const i = ui.stageAt(ui.t);
+    const key = `${i}:${ui.sample}`;
+    if (key === shownStage) return;
+    shownStage = key;
+    const st = ui.stages[i];
+    capTitle.innerHTML = `${esc(st.title)}<span class="step">step ${i + 1} of ${ui.stages.length}</span>`;
+    capText.innerHTML = st.text();
+    caption.hidden = false;
+  }
   window.addEventListener("keydown", (e) => {
-    if (e.code === "Space" && !["INPUT", "SELECT", "BUTTON"].includes(document.activeElement?.tagName)) {
+    if (["INPUT", "SELECT", "BUTTON"].includes(document.activeElement?.tagName)) return;
+    if (e.code === "Space") {
       e.preventDefault();
       ui.togglePlay();
-    }
+    } else if (e.code === "ArrowRight") ui.step(1);
+    else if (e.code === "ArrowLeft") ui.step(-1);
   });
 
   // Sample picker: thumbnails for image inputs, numbers otherwise.
@@ -186,6 +239,7 @@ function createUI(P) {
       else b.textContent = String(s + 1);
       b.addEventListener("click", () => {
         ui.sample = s;
+        shownStage = null;
         box.querySelectorAll(".sample").forEach((el, i) => el.setAttribute("aria-pressed", String(i === s)));
         ui.onSample?.(s);
       });
@@ -237,6 +291,7 @@ function createUI(P) {
   };
 
   ui.resetForView = () => {
+    ui.setStages([]);
     ui.extra.innerHTML = "";
     ui.legend.innerHTML = "";
     ui.panel(null);
@@ -245,7 +300,7 @@ function createUI(P) {
 
   let last = performance.now();
   function frame(now) {
-    const dt = Math.min(0.1, (now - last) / 1000);
+    const dt = clamp((now - last) / 1000, 0, 0.1); // rAF time can precede performance.now()
     last = now;
     if (ui.playing) {
       ui.t += dt * ui.speed;
@@ -256,6 +311,7 @@ function createUI(P) {
       syncControls();
     }
     ui.view?.frame(ui.t, dt);
+    syncCaption();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

@@ -51,6 +51,20 @@ function createNeuronView(root, P, ui) {
     k === 0 ? smoothstep(0, T_IN, t) : smoothstep(starts[k] + T_EDGE, starts[k] + T_EDGE + T_FIRE, t);
   const heading = (k) => (k === 0 ? "Input" : k === L - 1 ? "Output" : `Hidden ${k}`);
 
+  // One step per column: the input appearing, then each layer receiving its signals and firing.
+  const predText = () => {
+    if (!out) return "";
+    const j = layers[L - 1].shown.indexOf(out.predicted[sample]);
+    const p = j >= 0 ? out.probs[sample][j] : null;
+    return ` Prediction: <b>${esc(out.labels[j] ?? out.predicted[sample])}</b>${p != null ? ` (${(p * 100).toFixed(0)}%)` : ""}.`;
+  };
+  const stages = layers.map((layer, k) => ({
+    start: starts[k],
+    end: k === 0 ? T_IN : starts[k] + T_EDGE + T_FIRE,
+    title: heading(k),
+    text: () => esc(layer.explain || "") + (k === L - 1 ? predText() : ""),
+  }));
+
   const images = N.image ? Array.from({ length: P.samples }, (_, s) => imageToCanvas(N.image, s)) : null;
 
   ui.legend.innerHTML =
@@ -71,7 +85,8 @@ function createNeuronView(root, P, ui) {
 
     const narrow = W < 640;
     const top = narrow ? 150 : 110;
-    const bottom = narrow ? 175 : 150;
+    // Leave room for the control bar, whose height changes with the caption.
+    const bottom = (document.getElementById("controls")?.offsetHeight || 120) + (narrow ? 50 : 40);
     const availH = Math.max(120, H - top - bottom);
     const maxShown = Math.max(...layers.map((l) => l.shown.length));
     const r = clamp(availH / (maxShown * 2.6), 2.5, 15);
@@ -317,18 +332,52 @@ function createNeuronView(root, P, ui) {
       dirty = true;
     }
     if (!hover) return ui.hideTip();
-    const layer = layers[hover.k];
-    const idx = layer.shown[hover.j];
-    let html = `<b>${heading(hover.k)}</b> · neuron ${idx}<br>`;
-    html += `<span class="muted">activation</span> ${fmtNum(value(hover.k, hover.j))}`;
-    if (isOutput(hover.k)) html += `<br><span class="muted">${esc(out.labels[hover.j])}</span> ${(out.probs[sample][hover.j] * 100).toFixed(1)}%`;
-    if (layer.bias) html += `<br><span class="muted">bias</span> ${fmtNum(layer.bias[hover.j])}`;
-    if (hover.k === 0 && N.image) {
-      const p = pixelOf(idx);
-      html += `<br><span class="muted">pixel</span> (${p.x}, ${p.y})${N.image.c > 1 ? ` ch ${p.ch}` : ""}`;
-    }
-    ui.tip(html, e.clientX, e.clientY);
+    ui.tip(neuronTip(hover.k, hover.j), e.clientX, e.clientY);
   }
+  function sourceName(k, i) {
+    if (k === 0 && N.image) {
+      const p = pixelOf(i);
+      return `pixel (${p.x}, ${p.y})`;
+    }
+    return `${heading(k).toLowerCase()} #${i}`;
+  }
+
+  /** Tooltip with the neuron's value and, for layers, the weighted sum that produced it. */
+  function neuronTip(k, j) {
+    const layer = layers[k];
+    const idx = layer.shown[j];
+    const v = value(k, j);
+    let html = `<b>${heading(k)}</b> · neuron ${idx}`;
+    if (k === 0) {
+      html += `<br><span class="muted">value</span> ${fmtNum(v)}`;
+      if (N.image) html += ` <span class="muted">from ${sourceName(0, idx)}</span>`;
+      return html;
+    }
+    const terms = layer.terms[sample][j];
+    const z = layer.z[sample][j];
+    const b = layer.bias ? layer.bias[j] : 0;
+    const top = terms.reduce((s, [, w, a]) => s + w * a, 0);
+    const rest = z - b - top;
+    const others = layers[k - 1].size - terms.length;
+    const row = (sign, w, a, src) =>
+      `<tr><td class="${sign < 0 ? "neg" : "pos"}">${sign < 0 ? "−" : "+"}</td><td class="num">${fmtNum(Math.abs(w))}</td><td>×</td><td class="num">${fmtNum(a)}</td><td class="src">${esc(src)}</td></tr>`;
+    html += `<div class="math">z = Σ weight × input + bias<table>`;
+    for (const [i, w, a] of terms) html += row(Math.sign(w * a) || 1, w, a, sourceName(k - 1, i));
+    if (others > 0) html += `<tr><td class="${rest < 0 ? "neg" : "pos"}">${rest < 0 ? "−" : "+"}</td><td class="num">${fmtNum(Math.abs(rest))}</td><td></td><td></td><td class="src">${others} other inputs</td></tr>`;
+    if (layer.bias) html += `<tr><td class="${b < 0 ? "neg" : "pos"}">${b < 0 ? "−" : "+"}</td><td class="num">${fmtNum(Math.abs(b))}</td><td></td><td></td><td class="src">bias</td></tr>`;
+    html += `<tr class="total"><td>=</td><td class="num"><b>${fmtNum(z)}</b></td><td></td><td></td><td class="src">z</td></tr></table>`;
+    if (isOutput(k)) {
+      html += `softmax → <b>${(out.probs[sample][j] * 100).toFixed(1)}%</b> <span class="src">${esc(out.labels[j])}</span>`;
+    } else if (layer.act && layer.exact) {
+      html += `${esc(layer.act)}(${fmtNum(z)}) = <b>${fmtNum(v)}</b>`;
+    } else if (layer.act || !layer.exact) {
+      html += `after ${esc(layer.detail.split(" · ").slice(1).join(", "))}: <b>${fmtNum(v)}</b>`;
+    } else {
+      html += `a = z = <b>${fmtNum(v)}</b>`;
+    }
+    return html + "</div>";
+  }
+
   function onLeave() {
     hover = null;
     dirty = true;
@@ -338,10 +387,12 @@ function createNeuronView(root, P, ui) {
   canvas.addEventListener("pointerleave", onLeave);
   const ro = new ResizeObserver(layout);
   ro.observe(root);
+  ro.observe(document.getElementById("controls"));
   layout();
 
   return {
     duration,
+    stages,
     frame(t) {
       if (t === lastT && !dirty) return;
       lastT = t;

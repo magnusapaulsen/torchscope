@@ -8,3 +8,4 @@ build/
 dist/
 examples/*.html
 .DS_Store
+examples/*.svg

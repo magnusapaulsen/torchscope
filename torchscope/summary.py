@@ -11,6 +11,8 @@ import torch.nn.functional as F
 FACE_MAX = 32
 IMAGE_MAX = 64
 VECTOR_MAX = 16384
+CHANNELS_MAX = 32  # per-channel feature maps kept for at most this many channels
+CHANNEL_VALUES_MAX = 32768  # ...and at most this many values per sample
 
 
 @dataclass
@@ -28,6 +30,8 @@ class Summary:
         top: Mean over ``H``, shape ``(B, w, c)``.
         vector: The full flattened sample ``(B, numel)``, if ``numel <= VECTOR_MAX``.
         image: ``(B, C, h, w)`` with ``C`` in {1, 3}, for image-like inputs only.
+        channels: ``(B, c, h, w)`` per-channel maps (the first ``CHANNELS_MAX`` channels)
+            for ``(C, H, W)`` feature maps, if small enough.
     """
 
     dims: tuple[int, int, int]
@@ -36,6 +40,7 @@ class Summary:
     top: torch.Tensor
     vector: torch.Tensor | None = None
     image: torch.Tensor | None = None
+    channels: torch.Tensor | None = None
 
 
 def canonical(t: torch.Tensor) -> torch.Tensor:
@@ -81,6 +86,12 @@ def summarize(t: torch.Tensor, image: bool = False) -> Summary:
         side=_pool(x.mean(dim=3).transpose(1, 2), FACE_MAX).cpu(),
         top=_pool(x.mean(dim=2).transpose(1, 2), FACE_MAX).cpu(),
     )
+    if t.ndim == 4 and h * w > 1:
+        maps = x[:, :CHANNELS_MAX]
+        if maps.shape[-2] > FACE_MAX or maps.shape[-1] > FACE_MAX:
+            maps = F.adaptive_avg_pool2d(maps, (min(h, FACE_MAX), min(w, FACE_MAX)))
+        if maps[0].numel() <= CHANNEL_VALUES_MAX:
+            summary.channels = maps.cpu()
     if t[0].numel() <= VECTOR_MAX:
         summary.vector = t.reshape(t.shape[0], -1).cpu()
     if image:

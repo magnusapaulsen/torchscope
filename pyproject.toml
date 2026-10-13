@@ -36,3 +36,6 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D"]
 "examples/**" = ["D"]
+# SVG markup and caption sentences are long strings; splitting them hurts readability.
+"torchscope/svg*.py" = ["E501"]
+"torchscope/explain.py" = ["E501"]
