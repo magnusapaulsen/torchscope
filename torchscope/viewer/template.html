@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+{{CSS}}
+</style>
+<script type="importmap">
+{"imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="stage"></div>
+  <header id="top">
+    <div class="brand">
+      <div id="title" class="title"></div>
+      <div id="meta" class="meta"></div>
+    </div>
+    <div id="views" class="segmented" role="tablist" aria-label="View"></div>
+  </header>
+  <div id="legend" class="legend"></div>
+  <aside id="panel" class="panel" hidden></aside>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <footer id="controls" class="controls">
+    <div class="row">
+      <button id="play" class="icon-btn" aria-label="Play">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z"/></svg>
+      </button>
+      <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Animation progress">
+      <select id="speed" aria-label="Speed">
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+    </div>
+    <div class="row wrap">
+      <div id="samples" class="samples" aria-label="Input sample"></div>
+      <div id="extra" class="extra"></div>
+    </div>
+  </footer>
+</div>
+<script id="payload" type="application/json">{{DATA}}</script>
+<script type="module">
+{{SCRIPT}}
+</script>
+</body>
+</html>
