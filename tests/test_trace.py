@@ -1,3 +1,5 @@
+import re
+
 import pytest
 import torch
 from conftest import MODELS, ResNetish, TinyCNN, TinyViT, assert_unchanged, encoder, mlp, snapshot
@@ -132,3 +134,34 @@ def test_multiple_inputs():
     g = trace(Two(), (torch.randn(2, 4), torch.randn(2, 5)))
     assert [n.name for n in g.nodes] == ["input", "input.1", "a", "b", "mul"]
     assert g.nodes[-1].inputs == [2, 3]
+
+
+def available_devices():
+    devices = []
+    if torch.cuda.is_available():
+        devices.append("cuda")
+    if torch.backends.mps.is_available():
+        devices.append("mps")
+    return devices
+
+
+@pytest.mark.skipif(not available_devices(), reason="no accelerator")
+@pytest.mark.parametrize("device", available_devices())
+def test_trace_runs_on_the_inputs_device(device):
+    import torchscope
+
+    model = TinyCNN().to(device)
+    viz = torchscope.visualize(model, torch.randn(2, 1, 8, 8, device=device))
+    assert viz.view == "slabs"
+    assert all(p.device.type == device for p in model.parameters())
+
+
+def test_no_hardcoded_devices():
+    from pathlib import Path
+
+    import torchscope
+
+    for path in Path(torchscope.__file__).parent.glob("*.py"):
+        text = path.read_text()
+        assert ".cuda(" not in text, path.name
+        assert not re.search(r"device\(?\s*=?\s*[\"']cuda|\.to\([\"']cuda", text), path.name

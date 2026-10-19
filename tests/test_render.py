@@ -46,3 +46,12 @@ def test_viewer_script_parses(tmp_path):
     script = tmp_path / "viewer.mjs"
     script.write_text("\n".join(_asset(name) for name in _JS_FILES))
     subprocess.run(["node", "--check", str(script)], check=True)
+
+
+def test_neuron_view_needs_no_network():
+    html = torchscope.visualize(mlp(), torch.rand(3, 1, 8, 8)).to_html()
+    assert not re.search(r"<(script|link|img)\b[^>]*\b(src|href)=[\"']https?:", html)
+    # three.js is only reachable through the import map, and only imported dynamically.
+    scripts = "\n".join(_asset(name) for name in _JS_FILES)
+    assert not re.search(r"^\s*import\b", scripts, re.M)
+    assert scripts.count('import("three') == scripts.count("await import(")

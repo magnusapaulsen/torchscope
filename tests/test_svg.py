@@ -67,3 +67,18 @@ def test_png_encoder_round_trip():
     img = pil.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1])))
     assert img.size == (4, 3) and img.mode == "RGB"
     assert img.tobytes() == pixels
+
+
+@pytest.mark.parametrize("factory", [mlp, TinyCNN])
+def test_svg_has_no_scripts_or_external_references(factory):
+    svg = torchscope.visualize(factory(), torch.rand(3, 1, 8, 8)).to_svg()
+    root = parse(svg)
+    tags = {el.tag.removeprefix(SVG) for el in root.iter()}
+    assert "script" not in tags and "foreignObject" not in tags
+    for el in root.iter():
+        for name, value in el.attrib.items():
+            assert not name.startswith("on"), name
+            if name.endswith("href"):
+                assert value.startswith(("#", "data:")), value
+    assert not re.search(r"url\(\s*['\"]?https?:", svg)
+    assert "@import" not in svg
