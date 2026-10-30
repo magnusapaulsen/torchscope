@@ -18,7 +18,7 @@ graph = torchscope.trace(model, x)  # the simplified dataflow graph, for inspect
 
 ## Commands
 - Install: `pip install -e ".[dev]"` (the `examples` extra adds torchvision and matplotlib)
-- Test: `pytest`
+- Test: `pytest`; one test: `pytest tests/test_trace.py::test_name -x`
 - Lint and format: `ruff check .` and `ruff format .`
 - JS syntax check: `node --check torchscope/viewer/*.js`
 - Preview examples: `python -m http.server 8765 --directory examples` (also in `.claude/launch.json`)
@@ -32,8 +32,9 @@ graph = torchscope.trace(model, x)  # the simplified dataflow graph, for inspect
 - `torchscope/render.py`: `Visualization`; inlines the viewer assets and the JSON into one HTML file
 - `torchscope/svg.py`, `torchscope/svg_slabs.py`: animated SVG export for READMEs (neuron view, slab view)
 - `torchscope/viewer/`: `template.html`, `style.css`, and plain JS (`common.js`, `learn.js`, `neurons.js`, `slabs.js`, `main.js`), concatenated into one `<script type="module">`
+- Viewer JS files share one module scope after concatenation (order is `_JS_FILES` in `render.py`): no `import`/`export` between them, and a new file must be added to that tuple and to `package-data` coverage (`viewer/*`).
 - `tests/`: mirrors the package; toy models live in `tests/conftest.py`
-- `examples/`: runnable scripts that write HTML files
+- `examples/`: runnable scripts that write HTML and SVG files; the generated `*.html` and `*.svg` are gitignored
 
 ## Tracing rules
 - Trace with module forward hooks plus a `TorchFunctionMode`, not `torch.fx`, so any model with dynamic control flow works.
